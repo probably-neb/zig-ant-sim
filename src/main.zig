@@ -98,10 +98,10 @@ pub fn main() !void {
     // if (gl.adLoadGL() == 0) {
     //     return error.GladLoadGLFailed;
     // }
-    const width = 800;
-    const height = 600;
+    const screen_w = 800;
+    const screen_h = 600;
 
-    const window_handler = try createWindow(width, height);
+    const window_handler = try createWindow(screen_w, screen_h);
     var framebuffer_width: i32 = undefined;
     var framebuffer_height: i32 = undefined;
     c.glfwGetFramebufferSize(window_handler, &framebuffer_width, &framebuffer_height);
@@ -131,40 +131,73 @@ pub fn main() !void {
 
         break :program_id program_id;
     };
+
     gl.DeleteShader(vertex_shader);
     gl.DeleteShader(fragment_shader);
 
     gl.UseProgram(program);
 
-    var vao: c_uint = undefined;
-    gl.GenVertexArrays(1, @ptrCast(&vao));
-    defer gl.DeleteVertexArrays(1, @ptrCast(&vao)); // Clean up in the end of main().
+    const circle_segment_count = 100;
+    var circle_vertices_buf: [circle_segment_count * 2]f32 = undefined;
 
-    var position_buffer: c_uint = undefined;
-    gl.GenBuffers(1, @ptrCast(&position_buffer));
-    defer gl.DeleteBuffers(1, @ptrCast(&position_buffer)); // Clean up in the end of main().
+    // fill circle_vertices_buf
+    {
+        const circle_info = struct { x: f32, y: f32, r: f32 }{
+            .x = 0.0,
+            .y = 0.0,
+            .r = 0.5,
+        };
 
-    gl.BindVertexArray(vao);
+        for (0..circle_segment_count) |i| {
+            const i_f32: f32 = @floatFromInt(i);
+            const angle = i_f32 * std.math.tau / circle_segment_count;
+            circle_vertices_buf[i * 2] = circle_info.x + std.math.cos(angle) * circle_info.r;
+            circle_vertices_buf[i * 2 + 1] = circle_info.y + std.math.sin(angle) * circle_info.r;
+        }
+    }
 
-    const vertices = [_]f32{
-        // zig fmt: off
-        -1.0, -1.0,
-        1.0, -1.0,
-        0.0, 1.0,
-        // zig fmt: on
-    };
-    gl.BindBuffer(gl.ARRAY_BUFFER, position_buffer);
-    gl.BufferData(gl.ARRAY_BUFFER, (@as(isize, @intCast(@sizeOf(c.GLfloat))) * vertices.len), &vertices[0], gl.STATIC_DRAW);
-    _ = get_attribute_location(program, 2, "a_position");
+    var circle_ver_buf_gl_id: c_uint = undefined;
+    var circle_pos_buf_gl_id: c_uint = undefined;
+
+    gl.GenVertexArrays(1, @ptrCast(&circle_ver_buf_gl_id));
+    defer gl.DeleteVertexArrays(1, @ptrCast(&circle_ver_buf_gl_id));
+
+    gl.GenBuffers(1, @ptrCast(&circle_pos_buf_gl_id));
+    defer gl.DeleteBuffers(1, @ptrCast(&circle_pos_buf_gl_id));
+
+    gl.BindVertexArray(circle_ver_buf_gl_id);
+
+    gl.BindBuffer(gl.ARRAY_BUFFER, circle_pos_buf_gl_id);
+    gl.BufferData(gl.ARRAY_BUFFER, @intCast(circle_vertices_buf.len * @sizeOf(c.GLfloat)), &circle_vertices_buf[0], gl.STATIC_DRAW);
+
+    {
+        const attribute_name: *const [10:0]u8 = "a_position";
+        const attribute_size: c_int = 2;
+
+        const location = gl.GetAttribLocation(program, @ptrCast(attribute_name));
+
+        if (location == -1) {
+            // TODO: figure out how to set text error and return error here.
+            std.debug.panic("Failed to get a uniform location \"{s}\".", .{attribute_name});
+        }
+
+        gl.EnableVertexAttribArray(@as(u32, @intCast(location)));
+        gl.VertexAttribPointer(@as(u32, @intCast(location)), attribute_size, gl.FLOAT, gl.FALSE, 0, 0);
+    }
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
         gl.Viewport(0, 0, framebuffer_width, framebuffer_height);
-        gl.ClearColor(0, 0, 0, 1);
+        gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        gl.BindVertexArray(vao);
-        gl.DrawArrays(gl.TRIANGLES, 0, 3);
-        gl.BindVertexArray(0);
+        // draw circle
+        {
+            gl.BindVertexArray(circle_ver_buf_gl_id);
+            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(@divFloor(circle_vertices_buf.len, 2)));
+
+            gl.BindVertexArray(0);
+            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
+        }
 
         c.glfwSwapBuffers(window_handler);
         c.glfwPollEvents();
