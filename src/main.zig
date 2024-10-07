@@ -138,51 +138,56 @@ pub fn main() !void {
     gl.UseProgram(program);
 
     const circle_segment_count = 100;
-    var circle_vertices_buf: [circle_segment_count * 2]f32 = undefined;
+    const circles_count = 4;
+
+    var circles_vertices_buf: [circles_count][circle_segment_count * 2]f32 = undefined;
+
+    const circles_info: [circles_count]struct { x: f32, y: f32, r: f32 } = .{
+        .{ .x = 0.5, .y = 0.5, .r = 0.02 },
+        .{ .x = 0.5, .y = -0.5, .r = 0.02 },
+        .{ .x = -0.5, .y = 0.5, .r = 0.02 },
+        .{ .x = -0.5, .y = -0.5, .r = 0.02 },
+    };
+
+    var circles_ver_buf_gl_id: [circles_count]c_uint = undefined;
+    var circles_pos_buf_gl_id: [circles_count]c_uint = undefined;
 
     // fill circle_vertices_buf
-    {
-        const circle_info = struct { x: f32, y: f32, r: f32 }{
-            .x = 0.0,
-            .y = 0.0,
-            .r = 0.5,
-        };
+    for (0..circles_count) |circle_index| {
+        const circle_info = circles_info[circle_index];
 
         for (0..circle_segment_count) |i| {
             const i_f32: f32 = @floatFromInt(i);
             const angle = i_f32 * std.math.tau / circle_segment_count;
-            circle_vertices_buf[i * 2] = circle_info.x + std.math.cos(angle) * circle_info.r;
-            circle_vertices_buf[i * 2 + 1] = circle_info.y + std.math.sin(angle) * circle_info.r;
+            circles_vertices_buf[circle_index][i * 2] = circle_info.x + std.math.cos(angle) * circle_info.r;
+            circles_vertices_buf[circle_index][i * 2 + 1] = circle_info.y + std.math.sin(angle) * circle_info.r;
         }
     }
+    gl.GenVertexArrays(circles_count, @ptrCast(&circles_ver_buf_gl_id[0]));
+    defer gl.DeleteVertexArrays(circles_count, @ptrCast(&circles_ver_buf_gl_id[0]));
 
-    var circle_ver_buf_gl_id: c_uint = undefined;
-    var circle_pos_buf_gl_id: c_uint = undefined;
+    gl.GenBuffers(circles_count, @ptrCast(&circles_pos_buf_gl_id[0]));
+    defer gl.DeleteBuffers(circles_count, @ptrCast(&circles_pos_buf_gl_id[0]));
 
-    gl.GenVertexArrays(1, @ptrCast(&circle_ver_buf_gl_id));
-    defer gl.DeleteVertexArrays(1, @ptrCast(&circle_ver_buf_gl_id));
+    for (circles_ver_buf_gl_id, circles_pos_buf_gl_id, 0..) |circle_ver_buf_gl_id, circle_pos_buf_gl_id, circle_index| {
+        gl.BindVertexArray(circle_ver_buf_gl_id);
 
-    gl.GenBuffers(1, @ptrCast(&circle_pos_buf_gl_id));
-    defer gl.DeleteBuffers(1, @ptrCast(&circle_pos_buf_gl_id));
+        gl.BindBuffer(gl.ARRAY_BUFFER, circle_pos_buf_gl_id);
+        gl.BufferData(gl.ARRAY_BUFFER, @intCast(circle_segment_count * 2 * @sizeOf(c.GLfloat)), &circles_vertices_buf[circle_index], gl.STATIC_DRAW);
+        {
+            const attribute_name: *const [10:0]u8 = "a_position";
+            const attribute_size: c_int = 2;
 
-    gl.BindVertexArray(circle_ver_buf_gl_id);
+            const location = gl.GetAttribLocation(program, @ptrCast(attribute_name));
 
-    gl.BindBuffer(gl.ARRAY_BUFFER, circle_pos_buf_gl_id);
-    gl.BufferData(gl.ARRAY_BUFFER, @intCast(circle_vertices_buf.len * @sizeOf(c.GLfloat)), &circle_vertices_buf[0], gl.STATIC_DRAW);
+            if (location == -1) {
+                // TODO: figure out how to set text error and return error here.
+                std.debug.panic("Failed to get a uniform location \"{s}\".", .{attribute_name});
+            }
 
-    {
-        const attribute_name: *const [10:0]u8 = "a_position";
-        const attribute_size: c_int = 2;
-
-        const location = gl.GetAttribLocation(program, @ptrCast(attribute_name));
-
-        if (location == -1) {
-            // TODO: figure out how to set text error and return error here.
-            std.debug.panic("Failed to get a uniform location \"{s}\".", .{attribute_name});
+            gl.EnableVertexAttribArray(@as(u32, @intCast(location)));
+            gl.VertexAttribPointer(@as(u32, @intCast(location)), attribute_size, gl.FLOAT, gl.FALSE, 0, 0);
         }
-
-        gl.EnableVertexAttribArray(@as(u32, @intCast(location)));
-        gl.VertexAttribPointer(@as(u32, @intCast(location)), attribute_size, gl.FLOAT, gl.FALSE, 0, 0);
     }
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
@@ -190,10 +195,10 @@ pub fn main() !void {
         gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        // draw circle
-        {
+        // draw circles
+        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
             gl.BindVertexArray(circle_ver_buf_gl_id);
-            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(@divFloor(circle_vertices_buf.len, 2)));
+            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
 
             gl.BindVertexArray(0);
             gl.BindBuffer(gl.ARRAY_BUFFER, 0);
