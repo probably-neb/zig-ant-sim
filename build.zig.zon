@@ -27,6 +27,10 @@
             .url = "https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip",
             .hash = "1220625fa7ce79733c6889844cb02ea1f6e4b81b46a3fabacec181714879947f4abd",
         },
+        .zigglgen = .{
+            .url = "git+https://github.com/castholm/zigglgen#e46b14cba6ad5032c67e31559955cbdad837078a",
+            .hash = "12205250586574bb090261ef5414b257d24d129b5e2f126c6fde501e5b40213eb13e",
+        },
     },
     .paths = .{
         "build.zig",
