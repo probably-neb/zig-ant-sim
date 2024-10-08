@@ -166,7 +166,6 @@ pub fn main() !void {
     var ant_texture_vao: c_uint = undefined;
     var ant_textrue_ebo: c_uint = undefined;
     const ant_scale: f32 = 0.04; // This will scale the texture to half its size
-    const ant_rotation: f32 = std.math.pi; // This is the rotation in radians
     {
         const ant_texture_vert_shader_source =
             \\#version 330 core
@@ -177,13 +176,12 @@ pub fn main() !void {
             \\out vec2 TexCoord;
             \\
             \\uniform float uScale;
-            \\uniform float uRotation;
             \\
             \\void main()
             \\{
             \\    // Apply rotation
-            \\    float cosR = cos(uRotation);
-            \\    float sinR = sin(uRotation);
+            \\    float cosR = cos(0.0);
+            \\    float sinR = sin(0.0);
             \\    vec2 rotatedPos = vec2(
             \\        aPos.x * cosR - aPos.y * sinR,
             \\        aPos.x * sinR + aPos.y * cosR
@@ -271,7 +269,6 @@ pub fn main() !void {
 
     }
     const ant_scale_location = gl.GetUniformLocation(ant_texture_program, "uScale");
-    const ant_rotation_location = gl.GetUniformLocation(ant_texture_program, "uRotation");
     std.debug.print("setup time: {}ms\n", .{@as(f64, @floatFromInt(std.time.nanoTimestamp() - setup_start)) / std.time.ns_per_ms},);
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
@@ -296,9 +293,7 @@ pub fn main() !void {
         gl.UseProgram(ant_texture_program);
         {
             gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
-            gl.Uniform1i(gl.GetUniformLocation(ant_texture_program, "texture1"), 0);
             gl.Uniform1f(ant_scale_location, ant_scale);
-            gl.Uniform1f(ant_rotation_location, ant_rotation);
             gl.BindVertexArray(ant_texture_vao);
             // gl.DrawArrays(gl.TRIANGLE_FAN, 0, 8);
             gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_textrue_ebo);
