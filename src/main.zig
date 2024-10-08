@@ -165,20 +165,36 @@ pub fn main() !void {
     var ant_texture_program: c_uint = undefined;
     var ant_texture_vao: c_uint = undefined;
     var ant_textrue_ebo: c_uint = undefined;
+    const ant_scale: f32 = 0.04; // This will scale the texture to half its size
+    const ant_rotation: f32 = std.math.pi; // This is the rotation in radians
     {
         const ant_texture_vert_shader_source =
-            \\ #version 330 core
+            \\#version 330 core
             \\
-            \\ layout (location = 0) in vec2 aPos;
-            \\ layout (location = 1) in vec2 aTexCoord;
+            \\layout (location = 0) in vec2 aPos;
+            \\layout (location = 1) in vec2 aTexCoord;
             \\
-            \\ out vec2 TexCoord;
+            \\out vec2 TexCoord;
             \\
-            \\ void main()
-            \\ {
-            \\     gl_Position = vec4(aPos, 1.0, 1.0);
-            \\     TexCoord = aTexCoord;
-            \\ }
+            \\uniform float uScale;
+            \\uniform float uRotation;
+            \\
+            \\void main()
+            \\{
+            \\    // Apply rotation
+            \\    float cosR = cos(uRotation);
+            \\    float sinR = sin(uRotation);
+            \\    vec2 rotatedPos = vec2(
+            \\        aPos.x * cosR - aPos.y * sinR,
+            \\        aPos.x * sinR + aPos.y * cosR
+            \\    );
+            \\    
+            \\    // Apply scaling
+            \\    vec2 scaledPos = rotatedPos * uScale;
+            \\    
+            \\    gl_Position = vec4(scaledPos, 0.0, 1.0);
+            \\    TexCoord = aTexCoord;
+            \\}
         ;
         const ant_texture_frag_shader_source =
             \\ #version 330 core
@@ -254,6 +270,8 @@ pub fn main() !void {
         gl.EnableVertexAttribArray(1);
 
     }
+    const ant_scale_location = gl.GetUniformLocation(ant_texture_program, "uScale");
+    const ant_rotation_location = gl.GetUniformLocation(ant_texture_program, "uRotation");
     std.debug.print("setup time: {}ms\n", .{@as(f64, @floatFromInt(std.time.nanoTimestamp() - setup_start)) / std.time.ns_per_ms},);
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
@@ -279,6 +297,8 @@ pub fn main() !void {
         {
             gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
             gl.Uniform1i(gl.GetUniformLocation(ant_texture_program, "texture1"), 0);
+            gl.Uniform1f(ant_scale_location, ant_scale);
+            gl.Uniform1f(ant_rotation_location, ant_rotation);
             gl.BindVertexArray(ant_texture_vao);
             // gl.DrawArrays(gl.TRIANGLE_FAN, 0, 8);
             gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_textrue_ebo);
