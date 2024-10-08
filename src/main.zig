@@ -97,6 +97,7 @@ pub fn createWindow(width: i32, height: i32) !*c.GLFWwindow {
 }
 
 pub fn main() !void {
+    const setup_start = std.time.nanoTimestamp();
     const screen_w = 800;
     const screen_h = 600;
 
@@ -200,16 +201,10 @@ pub fn main() !void {
         );
 
         const alloc = std.heap.page_allocator;
-        // const ant_texture_contents = bmp.read_ant_simple(alloc) catch |err| {
-        //     std.debug.panic("Failed to read ant BMP: {any}", .{err});
-        // };
-        // defer alloc.free(ant_texture_contents);
-
-        // const zigimg = @import("zigimg");
-
-        var image = try @import("zigimg").Image.fromMemory(alloc, @embedFile("./assets/ant-simple.bmp"));
-        const ant_texture_contents = image.pixels.bgra32;
-        defer image.deinit();
+        const ant_texture_contents = bmp.read_ant_simple(alloc) catch |err| {
+            std.debug.panic("Failed to read ant BMP: {any}", .{err});
+        };
+        defer alloc.free(ant_texture_contents);
 
         gl.GenTextures(1, @ptrCast(&ant_texture_id));
         gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
@@ -259,6 +254,7 @@ pub fn main() !void {
         gl.EnableVertexAttribArray(1);
 
     }
+    std.debug.print("setup time: {}ms\n", .{@as(f64, @floatFromInt(std.time.nanoTimestamp() - setup_start)) / std.time.ns_per_ms},);
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
         const start = std.time.nanoTimestamp();

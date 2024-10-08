@@ -36,11 +36,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const zigimg_dep = b.dependency("zigimg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
     {
         const glfw_dep = b.dependency("glfw", .{});
 
