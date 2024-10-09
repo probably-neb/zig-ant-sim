@@ -27,7 +27,8 @@ const Ant = struct {
     dest: Nest.ID,
     steps: [COUNT_NESTS]Nest.ID,
     cur_step: @TypeOf(COUNT_NESTS),
-    cur_dest: Nest.ID,
+    cur_orig: Nest.ID,
+    cur_dest: ?Nest.ID,
     angle: f32 = 0,
 
     const ID = u64;
@@ -119,7 +120,7 @@ pub fn main() !void {
     };
 
     const circle_segment_count = 25;
-    const circle_radius = 0.02;
+    const circle_radius = 0.04;
 
     const nests = nests: {
         var nests = std.MultiArrayList(Nest){};
@@ -330,7 +331,6 @@ pub fn main() !void {
     var ant_id_next: Ant.ID = 0;
 
     const nest_ant_counts = nests.items(.ant_count);
-    std.debug.print("nest_ant_counts: {any}\n", .{nest_ant_counts});
 
     const nest_angles = nest_angles: {
         var nest_angles: [COUNT_NESTS][COUNT_NESTS]f32 = undefined;
@@ -349,6 +349,7 @@ pub fn main() !void {
 
         break :nest_angles nest_angles;
     };
+
 
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
@@ -385,14 +386,18 @@ pub fn main() !void {
                         }
                     };
 
+                    // + pi/2 to adjust for rotation of ant texture
+                    const angle = nest_angles[orig_id][dest_id] + (std.math.pi / 2.0);
+
                     ants.appendAssumeCapacity(.{
                         .id = ant_id_next,
                         .steps = undefined,
-                        .cur_step = 0,
                         .orig = orig_id,
                         .dest = dest_id,
-                        .cur_dest = 1,
-                        .angle = nest_angles[orig_id][dest_id],
+                        .cur_step = 0,
+                        .cur_orig = orig_id,
+                        .cur_dest = null,
+                        .angle = angle,
                     });
                     nest_ant_counts[orig_id] += 1;
                     ant_id_next += 1;
@@ -401,12 +406,27 @@ pub fn main() !void {
             }
         }
 
-        const ant_angles = ants.items(.angle);
+        {
+            const ant_angles = ants.items(.angle);
+            const ant_cur_origs = ants.items(.orig);
+            const nest_locations = nests.items(.location);
 
-        for (0..count_ants_cur) |i| {
-            ant_instances[i * 3 + 0] = @floatCast(std.math.sin(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // x
-            ant_instances[i * 3 + 1] = @floatCast(std.math.cos(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // y
-            ant_instances[i * 3 + 2] = ant_angles[i]; // rotation
+            for (0..count_ants_cur) |i| {
+                ant_instances[i * 3 + 0] = nest_locations[ant_cur_origs[i]][0];
+                ant_instances[i * 3 + 1] = nest_locations[ant_cur_origs[i]][1];
+                ant_instances[i * 3 + 2] = ant_angles[i]; // rotation
+            }
+        }
+
+
+        gl.UseProgram(nest_program);
+        // draw circles
+        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
+            gl.BindVertexArray(circle_ver_buf_gl_id);
+            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
+
+            gl.BindVertexArray(0);
+            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
         }
 
         gl.UseProgram(ant_texture_program);
@@ -422,17 +442,6 @@ pub fn main() !void {
             gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
             gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, null, @intCast(count_ants_cur));
         }
-
-        gl.UseProgram(nest_program);
-        // draw circles
-        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
-            gl.BindVertexArray(circle_ver_buf_gl_id);
-            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
-
-            gl.BindVertexArray(0);
-            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
-        }
-
         c.glfwSwapBuffers(window_handler);
         c.glfwPollEvents();
     }
