@@ -10,6 +10,8 @@ const COUNT_ANTS: u64 = 1022;
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
 
+const NEST_MAX_ANTS = 1;
+
 const Nest = struct {
     location: [2]f32, // [x, y]
     color: [3]u8, // [r, g, b]
@@ -327,15 +329,6 @@ pub fn main() !void {
         gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        gl.UseProgram(nest_program);
-        // draw circles
-        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
-            gl.BindVertexArray(circle_ver_buf_gl_id);
-            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
-
-            gl.BindVertexArray(0);
-            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
-        }
 
         if (ants.len < COUNT_ANTS and rng.boolean()) {
             ants.appendAssumeCapacity(.{
@@ -371,6 +364,16 @@ pub fn main() !void {
             // gl.DrawArrays(gl.TRIANGLE_FAN, 0, 8);
             gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
             gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, null, @intCast(count_ants_cur));
+        }
+
+        gl.UseProgram(nest_program);
+        // draw circles
+        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
+            gl.BindVertexArray(circle_ver_buf_gl_id);
+            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
+
+            gl.BindVertexArray(0);
+            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
         }
 
         c.glfwSwapBuffers(window_handler);
