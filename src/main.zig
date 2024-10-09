@@ -10,9 +10,10 @@ const COUNT_ANTS: u64 = 1022;
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
 
+const RNG_SEED = 123;
 const Nest = struct {
-    id: ID,
-    resources: [COUNT_RESOURCES]u64,
+    location: [2]f32, // [x, y]
+    color: [3]u8, // [r, g, b]
 
     const ID = @TypeOf(COUNT_NESTS);
 };
@@ -101,7 +102,12 @@ pub fn main() !void {
     const screen_w = 800;
     const screen_h = 600;
 
+    var rng_inner = std.Random.DefaultPrng.init(RNG_SEED);
+    const rng = std.Random.init(&rng_inner, std.Random.DefaultPrng.fill);
+    const alloc = std.heap.page_allocator;
+
     const window_handler = try create_window(screen_w, screen_h);
+
     var framebuffer_width: i32 = undefined;
     var framebuffer_height: i32 = undefined;
     c.glfwGetFramebufferSize(window_handler, &framebuffer_width, &framebuffer_height);
@@ -112,6 +118,13 @@ pub fn main() !void {
     const circles_count = 4;
 
     var circles_vertices_buf: [circles_count][circle_segment_count * 2]f32 = undefined;
+
+    _ = nests: {
+        var nests = std.MultiArrayList(Nest){};
+        nests.resize(alloc, COUNT_NESTS) catch unreachable;
+        generate_nests(rng, nests);
+        break :nests nests;
+    };
 
     const circles_info: [circles_count]struct { x: f32, y: f32, r: f32 } = .{
         .{ .x = 0.5, .y = 0.5, .r = 0.02 },
@@ -220,7 +233,6 @@ pub fn main() !void {
             ant_texture_frag_shader_source,
         );
 
-        const alloc = std.heap.page_allocator;
         const ant_texture_contents = bmp.read_ant_simple(alloc) catch |err| {
             std.debug.panic("Failed to read ant BMP: {any}", .{err});
         };
@@ -397,4 +409,24 @@ pub fn compile_shader_program(vertex_shader_source: []const u8, fragment_shader_
     }
 
     return program_id;
+}
+
+fn generate_nests(rng: std.Random, nests: std.MultiArrayList(Nest)) void {
+    const locations = nests.items(.location);
+    for (locations) |*location| {
+        const x = rng.float(f32) - 0.5;
+        const y = rng.float(f32) - 0.5;
+        location.* = .{
+            x,
+            y,
+        };
+    }
+
+    const colors = nests.items(.color);
+    for (colors) |*color| {
+        const r = rng.uintLessThanBiased(u8, 255);
+        const g = rng.uintLessThanBiased(u8, 255);
+        const b = rng.uintLessThanBiased(u8, 255);
+        color.* = .{r,g,b};
+    }
 }
