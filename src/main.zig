@@ -61,7 +61,7 @@ fn errorCallback(err: c_int, description: [*c]const u8) callconv(.C) void {
 var procs: gl.ProcTable = undefined;
 
 // Function that creates a window using GLFW.
-pub fn createWindow(width: i32, height: i32) !*c.GLFWwindow {
+pub fn create_window(width: i32, height: i32) !*c.GLFWwindow {
     var window: *c.GLFWwindow = undefined;
 
     _ = c.glfwSetErrorCallback(errorCallback);
@@ -101,7 +101,7 @@ pub fn main() !void {
     const screen_w = 800;
     const screen_h = 600;
 
-    const window_handler = try createWindow(screen_w, screen_h);
+    const window_handler = try create_window(screen_w, screen_h);
     var framebuffer_width: i32 = undefined;
     var framebuffer_height: i32 = undefined;
     c.glfwGetFramebufferSize(window_handler, &framebuffer_width, &framebuffer_height);
@@ -164,14 +164,19 @@ pub fn main() !void {
     var ant_texture_id: c_uint = undefined;
     var ant_texture_program: c_uint = undefined;
     var ant_texture_vao: c_uint = undefined;
-    var ant_textrue_ebo: c_uint = undefined;
+    var ant_texture_ebo: c_uint = undefined;
+    var ant_texture_instance_vbo: c_uint = undefined;
     const ant_scale: f32 = 0.04; // This will scale the texture to half its size
+
+    const ants_count = 4;
+    var ant_instances: [ants_count * 3]f32 = undefined;
     {
         const ant_texture_vert_shader_source =
             \\#version 330 core
             \\
             \\layout (location = 0) in vec2 aPos;
             \\layout (location = 1) in vec2 aTexCoord;
+            \\layout (location = 2) in vec3 aInstance; // x, y, rotation
             \\
             \\out vec2 TexCoord;
             \\
@@ -180,8 +185,8 @@ pub fn main() !void {
             \\void main()
             \\{
             \\    // Apply rotation
-            \\    float cosR = cos(0.0);
-            \\    float sinR = sin(0.0);
+            \\    float cosR = cos(aInstance.z);
+            \\    float sinR = sin(aInstance.z);
             \\    vec2 rotatedPos = vec2(
             \\        aPos.x * cosR - aPos.y * sinR,
             \\        aPos.x * sinR + aPos.y * cosR
@@ -189,8 +194,9 @@ pub fn main() !void {
             \\    
             \\    // Apply scaling
             \\    vec2 scaledPos = rotatedPos * uScale;
+            \\    vec2 finalPos = scaledPos + aInstance.xy;
             \\    
-            \\    gl_Position = vec4(scaledPos, 0.0, 1.0);
+            \\    gl_Position = vec4(finalPos, 0.0, 1.0);
             \\    TexCoord = aTexCoord;
             \\}
         ;
@@ -243,30 +249,41 @@ pub fn main() !void {
 
         const ant_texture_indices = [6]u32{ 0, 1, 3, 1, 2, 3 };
 
-        gl.GenBuffers(1, @ptrCast(&ant_textrue_ebo));
-        gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_textrue_ebo);
+        gl.GenBuffers(1, @ptrCast(&ant_texture_ebo));
+        gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
         gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, ant_texture_indices.len * @sizeOf(u32), @ptrCast(&ant_texture_indices[0]), gl.STATIC_DRAW);
 
-        var ant_vbo_id: c_uint = undefined;
-        var ant_vao_id: c_uint = undefined;
+        var ant_texture_vbo: c_uint = undefined;
 
-        gl.GenVertexArrays(1, @ptrCast(&ant_vao_id));
-        gl.GenBuffers(1, @ptrCast(&ant_vbo_id));
-
-        ant_texture_vao = ant_vao_id;
+        gl.GenVertexArrays(1, @ptrCast(&ant_texture_vao));
+        gl.GenBuffers(1, @ptrCast(&ant_texture_vbo));
+        gl.GenBuffers(1, @ptrCast(&ant_texture_instance_vbo));
 
 
-        gl.BindBuffer(gl.ARRAY_BUFFER, ant_vbo_id);
+        gl.BindBuffer(gl.ARRAY_BUFFER, ant_texture_vbo);
         gl.BufferData(gl.ARRAY_BUFFER, @sizeOf(@TypeOf(ant_texture_vertices)), @ptrCast(&ant_texture_vertices[0]), gl.STATIC_DRAW);
 
-        gl.BindVertexArray(ant_vao_id);
+        gl.BindVertexArray(ant_texture_vao);
+        {
+            gl.EnableVertexAttribArray(0);
+            gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, 4 * @sizeOf(f32), 0);
 
-        gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, 4 * @sizeOf(f32), 0);
-        gl.EnableVertexAttribArray(0);
+            gl.EnableVertexAttribArray(1);
+            gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 4 * @sizeOf(f32), 2 * @sizeOf(f32));
 
-        gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 4 * @sizeOf(f32), 2 * @sizeOf(f32));
-        gl.EnableVertexAttribArray(1);
 
+            gl.BindBuffer(gl.ARRAY_BUFFER, ant_texture_instance_vbo);
+            gl.BufferData(gl.ARRAY_BUFFER, @sizeOf(@TypeOf(ant_instances)), null, gl.DYNAMIC_DRAW);
+
+            // Set up the instance attribute
+            gl.EnableVertexAttribArray(2);
+            gl.VertexAttribPointer(2, 3, gl.FLOAT, gl.FALSE, 3 * @sizeOf(f32), 0);
+            gl.VertexAttribDivisor(2, 1); // This makes it an instanced attribute
+        }
+
+        // Don't forget to unbind
+        gl.BindBuffer(gl.ARRAY_BUFFER, 0);
+        gl.BindVertexArray(0);
     }
     const ant_scale_location = gl.GetUniformLocation(ant_texture_program, "uScale");
     std.debug.print("setup time: {}ms\n", .{@as(f64, @floatFromInt(std.time.nanoTimestamp() - setup_start)) / std.time.ns_per_ms},);
@@ -290,14 +307,24 @@ pub fn main() !void {
             gl.BindBuffer(gl.ARRAY_BUFFER, 0);
         }
 
+        for (0..ants_count) |i| {
+            ant_instances[i * 3 + 0] = @floatCast(std.math.sin(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // x
+            ant_instances[i * 3 + 1] = @floatCast(std.math.cos(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // y
+            ant_instances[i * 3 + 2] = @floatCast(c.glfwGetTime() + @as(f32, @floatFromInt(i)) * 0.5); // rotation
+        }
+
         gl.UseProgram(ant_texture_program);
         {
+            gl.BindBuffer(gl.ARRAY_BUFFER, ant_texture_instance_vbo);
+            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(ants_count * 3 * @sizeOf(f32)), &ant_instances);
+            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
+
             gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
             gl.Uniform1f(ant_scale_location, ant_scale);
             gl.BindVertexArray(ant_texture_vao);
             // gl.DrawArrays(gl.TRIANGLE_FAN, 0, 8);
-            gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_textrue_ebo);
-            gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, 0);
+            gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
+            gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, null, @intCast(ants_count));
         }
 
         c.glfwSwapBuffers(window_handler);
@@ -370,29 +397,4 @@ pub fn compile_shader_program(vertex_shader_source: []const u8, fragment_shader_
     }
 
     return program_id;
-}
-
-pub inline fn get_attribute_location(program: u32, size: i32, name: []const u8) i32 {
-    const location = if (c.is_wasm) gl.GetAttribLocation(program, name.ptr, name.len) else gl.GetAttribLocation(program, @ptrCast(name));
-
-    if (location == -1) {
-        // TODO: figure out how to set text error and return error here.
-        std.debug.panic("Failed to get a uniform location \"{s}\".", .{name});
-    }
-
-    gl.EnableVertexAttribArray(@as(u32, @intCast(location)));
-    gl.VertexAttribPointer(@as(u32, @intCast(location)), size, gl.FLOAT, gl.FALSE, 0, 0);
-
-    return location;
-}
-
-pub inline fn get_uniform_location(program: u32, name: []const u8) i32 {
-    const location = if (c.is_wasm) gl.GetUniformLocation(program, name.ptr, name.len) else gl.GetUniformLocation(program, @as([*c]const u8, @ptrCast(name)));
-
-    if (location == -1) {
-        // TODO: figure out how to set text error and return error here.
-        std.debug.panic("Failed to get a uniform location \"{s}\". Make sure it is _used_ in the shader.", .{name});
-    }
-
-    return location;
 }
