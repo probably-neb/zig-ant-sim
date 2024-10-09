@@ -18,12 +18,14 @@ const Nest = struct {
 };
 
 const Ant = struct {
-    id: u64,
+    id: ID,
     orig: Nest.ID,
     dest: Nest.ID,
     steps: [COUNT_NESTS]Nest.ID,
     cur_step: @TypeOf(COUNT_NESTS),
     cur_dest: Nest.ID,
+
+    const ID = u64;
 };
 
 const Path = struct {
@@ -242,8 +244,10 @@ pub fn main() !void {
     var ant_texture_instance_vbo: c_uint = undefined;
     const ant_scale: f32 = 0.04; // This will scale the texture to half its size
 
-    const ants_count = 4;
-    var ant_instances: [ants_count * 3]f32 = undefined;
+    var ants = std.MultiArrayList(Ant){};
+    ants.ensureTotalCapacity(alloc, COUNT_ANTS) catch unreachable;
+
+    var ant_instances: [COUNT_ANTS * 3]f32 = undefined;
     {
         const ant_texture_contents = bmp.read_ant_simple(alloc) catch |err| {
             std.debug.panic("Failed to read ant BMP: {any}", .{err});
@@ -312,6 +316,8 @@ pub fn main() !void {
     const ant_scale_location = gl.GetUniformLocation(ant_texture_program, "uScale");
     std.debug.print("setup time: {}ms\n", .{@as(f64, @floatFromInt(std.time.nanoTimestamp() - setup_start)) / std.time.ns_per_ms},);
 
+    var ant_id_next: Ant.ID = 0;
+
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
         const start = std.time.nanoTimestamp();
         defer {
@@ -331,16 +337,32 @@ pub fn main() !void {
             gl.BindBuffer(gl.ARRAY_BUFFER, 0);
         }
 
-        for (0..ants_count) |i| {
+        if (ants.len < COUNT_ANTS and rng.boolean()) {
+            ants.appendAssumeCapacity(.{
+                .id = ant_id_next,
+                .steps = undefined,
+                .cur_step = 0,
+                .orig = 0,
+                .dest = 1,
+                .cur_dest = 1,
+            });
+            ant_id_next += 1;
+        }
+
+        const count_ants_cur = ants.len;
+
+        for (0..count_ants_cur) |i| {
             ant_instances[i * 3 + 0] = @floatCast(std.math.sin(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // x
             ant_instances[i * 3 + 1] = @floatCast(std.math.cos(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // y
             ant_instances[i * 3 + 2] = @floatCast(c.glfwGetTime() + @as(f32, @floatFromInt(i)) * 0.5); // rotation
         }
 
+
+
         gl.UseProgram(ant_texture_program);
         {
             gl.BindBuffer(gl.ARRAY_BUFFER, ant_texture_instance_vbo);
-            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(ants_count * 3 * @sizeOf(f32)), &ant_instances);
+            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(count_ants_cur * 3 * @sizeOf(f32)), &ant_instances);
             gl.BindBuffer(gl.ARRAY_BUFFER, 0);
 
             gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
@@ -348,7 +370,7 @@ pub fn main() !void {
             gl.BindVertexArray(ant_texture_vao);
             // gl.DrawArrays(gl.TRIANGLE_FAN, 0, 8);
             gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
-            gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, null, @intCast(ants_count));
+            gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, null, @intCast(count_ants_cur));
         }
 
         c.glfwSwapBuffers(window_handler);
