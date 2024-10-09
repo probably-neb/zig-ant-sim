@@ -93,7 +93,7 @@ pub fn main() !void {
     c.glfwGetFramebufferSize(window_handler, &framebuffer_width, &framebuffer_height);
 
     const nest_program = program: {
-        const vert_shader_source =
+        const nest_vert_shader_source =
             \\#version 330 core
             \\in vec4 a_position;
             \\
@@ -101,7 +101,7 @@ pub fn main() !void {
             \\    gl_Position = a_position;
             \\}
         ;
-        const frag_shader_source =
+        const nest_frag_shader_source =
             \\#version 330 core
             \\
             \\precision highp float;
@@ -111,7 +111,7 @@ pub fn main() !void {
             \\    outColor = vec4(1.0, 0.0, 1.0, 1.0);
             \\}
         ;
-        break :program compile_shader_program(vert_shader_source, frag_shader_source);
+        break :program compile_shader_program(nest_vert_shader_source, nest_frag_shader_source);
     };
 
     const circle_segment_count = 25;
@@ -122,7 +122,26 @@ pub fn main() !void {
     const nests = nests: {
         var nests = std.MultiArrayList(Nest){};
         nests.resize(alloc, COUNT_NESTS) catch unreachable;
-        generate_nests(rng, nests);
+        // generate nests
+        {
+            const locations = nests.items(.location);
+            for (locations) |*location| {
+                const x = rng.float(f32) - 0.5;
+                const y = rng.float(f32) - 0.5;
+                location.* = .{
+                    x,
+                    y,
+                };
+            }
+
+            const colors = nests.items(.color);
+            for (colors) |*color| {
+                const r = rng.uintLessThanBiased(u8, 255);
+                const g = rng.uintLessThanBiased(u8, 255);
+                const b = rng.uintLessThanBiased(u8, 255);
+                color.* = .{ r, g, b };
+            }
+        }
         break :nests nests;
     };
 
@@ -403,24 +422,4 @@ pub fn compile_shader_program(vertex_shader_source: []const u8, fragment_shader_
     }
 
     return program_id;
-}
-
-fn generate_nests(rng: std.Random, nests: std.MultiArrayList(Nest)) void {
-    const locations = nests.items(.location);
-    for (locations) |*location| {
-        const x = rng.float(f32) - 0.5;
-        const y = rng.float(f32) - 0.5;
-        location.* = .{
-            x,
-            y,
-        };
-    }
-
-    const colors = nests.items(.color);
-    for (colors) |*color| {
-        const r = rng.uintLessThanBiased(u8, 255);
-        const g = rng.uintLessThanBiased(u8, 255);
-        const b = rng.uintLessThanBiased(u8, 255);
-        color.* = .{r,g,b};
-    }
 }
