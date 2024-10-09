@@ -28,6 +28,7 @@ const Ant = struct {
     steps: [COUNT_NESTS]Nest.ID,
     cur_step: @TypeOf(COUNT_NESTS),
     cur_dest: Nest.ID,
+    angle: f32 = 0,
 
     const ID = u64;
 };
@@ -120,8 +121,6 @@ pub fn main() !void {
     const circle_segment_count = 25;
     const circle_radius = 0.02;
 
-    var circles_vertices_buf: [COUNT_NESTS][circle_segment_count * 2]f32 = undefined;
-
     const nests = nests: {
         var nests = std.MultiArrayList(Nest){};
         nests.resize(alloc, COUNT_NESTS) catch unreachable;
@@ -156,17 +155,22 @@ pub fn main() !void {
     var circles_ver_buf_gl_id: [COUNT_NESTS]c_uint = undefined;
     var circles_pos_buf_gl_id: [COUNT_NESTS]c_uint = undefined;
 
-    const locations = nests.items(.location);
+    const circles_vertices_buf = circles: {
+        var circles_vertices_buf: [COUNT_NESTS][circle_segment_count * 2]f32 = undefined;
+        const locations = nests.items(.location);
 
-    // fill circle_vertices_buf
-    for (locations, 0..COUNT_NESTS) |location, circle_index| {
-        for (0..circle_segment_count) |i| {
-            const i_f32: f32 = @floatFromInt(i);
-            const angle = i_f32 * std.math.tau / circle_segment_count;
-            circles_vertices_buf[circle_index][i * 2] = location[0] + std.math.cos(angle) * circle_radius;
-            circles_vertices_buf[circle_index][i * 2 + 1] = location[1] + std.math.sin(angle) * circle_radius;
+        // fill circle_vertices_buf
+        for (locations, 0..COUNT_NESTS) |location, circle_index| {
+            for (0..circle_segment_count) |i| {
+                const i_f32: f32 = @floatFromInt(i);
+                const angle = i_f32 * std.math.tau / circle_segment_count;
+                circles_vertices_buf[circle_index][i * 2] = location[0] + std.math.cos(angle) * circle_radius;
+                circles_vertices_buf[circle_index][i * 2 + 1] = location[1] + std.math.sin(angle) * circle_radius;
+            }
         }
-    }
+        break :circles circles_vertices_buf;
+    };
+
     gl.GenVertexArrays(COUNT_NESTS, @ptrCast(&circles_ver_buf_gl_id[0]));
     defer gl.DeleteVertexArrays(COUNT_NESTS, @ptrCast(&circles_ver_buf_gl_id[0]));
 
@@ -328,6 +332,25 @@ pub fn main() !void {
     const nest_ant_counts = nests.items(.ant_count);
     std.debug.print("nest_ant_counts: {any}\n", .{nest_ant_counts});
 
+    const nest_angles = nest_angles: {
+        var nest_angles: [COUNT_NESTS][COUNT_NESTS]f32 = undefined;
+        const locations = nests.items(.location);
+
+        for (0..COUNT_NESTS) |nest_index| {
+            for (0..COUNT_NESTS) |other_nest_index| {
+                const nest_loc = locations[nest_index];
+                const other_nest_loc = locations[other_nest_index];
+
+                const dx = other_nest_loc[0] - nest_loc[0];
+                const dy = other_nest_loc[1] - nest_loc[1];
+                nest_angles[nest_index][other_nest_index] = std.math.atan2(dy, dx);
+            }
+        }
+
+        break :nest_angles nest_angles;
+    };
+
+
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
         const start = std.time.nanoTimestamp();
         defer {
@@ -345,28 +368,45 @@ pub fn main() !void {
             // PERF: if count_ants_cur close to COUNT_ANTS then just do linear search for nest
             // with less than NEST_MAX_ANTS ants
             ant_gen: for (0..COUNT_NESTS) |_| {
-                const nest_id = rng.uintLessThan(u32, COUNT_NESTS);
-                if (nest_ant_counts[nest_id] < NEST_MAX_ANTS) {
+
+                const orig_id = rng.uintLessThan(u32, COUNT_NESTS);
+
+                if (nest_ant_counts[orig_id] < NEST_MAX_ANTS) {
+                    const dest_id = dest: {
+                        for (0..COUNT_NESTS) |_| {
+                            const dest = rng.uintLessThan(u32, COUNT_NESTS);
+                            if (dest != orig_id) {
+                                break :dest dest;
+                            }
+                        } else {
+                            // if after COUNT_NESTS tries to get a random desination
+                            // nothing works then just don't generate
+                            continue :ant_gen;
+                        }
+                    };
+
                     ants.appendAssumeCapacity(.{
                         .id = ant_id_next,
                         .steps = undefined,
                         .cur_step = 0,
-                        .orig = nest_id,
-                        .dest = 1,
+                        .orig = orig_id,
+                        .dest = dest_id,
                         .cur_dest = 1,
+                        .angle = nest_angles[orig_id][dest_id],
                     });
-                    nest_ant_counts[nest_id] += 1;
+                    nest_ant_counts[orig_id] += 1;
                     ant_id_next += 1;
                     break :ant_gen;
                 }
             }
         }
 
+        const ant_angles = ants.items(.angle);
 
         for (0..count_ants_cur) |i| {
             ant_instances[i * 3 + 0] = @floatCast(std.math.sin(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // x
             ant_instances[i * 3 + 1] = @floatCast(std.math.cos(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // y
-            ant_instances[i * 3 + 2] = @floatCast(c.glfwGetTime() + @as(f32, @floatFromInt(i)) * 0.5); // rotation
+            ant_instances[i * 3 + 2] = ant_angles[i]; // rotation
         }
 
         gl.UseProgram(ant_texture_program);
