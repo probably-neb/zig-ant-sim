@@ -4,13 +4,12 @@ const gl = @import("gl");
 const c = @import("c.zig");
 const bmp = @import("bmp.zig");
 
-const COUNT_NESTS: u32 = 24;
+const COUNT_NESTS: u32 = 4;
 const COUNT_RESOURCES: @TypeOf(COUNT_NESTS) = COUNT_NESTS;
 const COUNT_ANTS: u64 = 1022;
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
 
-const RNG_SEED = 123;
 const Nest = struct {
     location: [2]f32, // [x, y]
     color: [3]u8, // [r, g, b]
@@ -34,25 +33,6 @@ const Path = struct {
 };
 
 const State = struct {};
-
-const vertex_shader_basic_source =
-    \\#version 330 core
-    \\in vec4 a_position;
-    \\
-    \\void main() {
-    \\    gl_Position = a_position;
-    \\}
-;
-const fragment_shader_basic_source =
-    \\#version 330 core
-    \\
-    \\precision highp float;
-    \\out vec4 outColor;
-    \\
-    \\void main() {
-    \\    outColor = vec4(1.0, 0.0, 1.0, 1.0);
-    \\}
-;
 
 fn errorCallback(err: c_int, description: [*c]const u8) callconv(.C) void {
     _ = err;
@@ -102,7 +82,7 @@ pub fn main() !void {
     const screen_w = 800;
     const screen_h = 600;
 
-    var rng_inner = std.Random.DefaultPrng.init(RNG_SEED);
+    var rng_inner = std.Random.DefaultPrng.init(@intCast(std.time.milliTimestamp()));
     const rng = std.Random.init(&rng_inner, std.Random.DefaultPrng.fill);
     const alloc = std.heap.page_allocator;
 
@@ -112,46 +92,59 @@ pub fn main() !void {
     var framebuffer_height: i32 = undefined;
     c.glfwGetFramebufferSize(window_handler, &framebuffer_width, &framebuffer_height);
 
-    const program_basic = compile_shader_program(vertex_shader_basic_source, fragment_shader_basic_source);
+    const nest_program = program: {
+        const vert_shader_source =
+            \\#version 330 core
+            \\in vec4 a_position;
+            \\
+            \\void main() {
+            \\    gl_Position = a_position;
+            \\}
+        ;
+        const frag_shader_source =
+            \\#version 330 core
+            \\
+            \\precision highp float;
+            \\out vec4 outColor;
+            \\
+            \\void main() {
+            \\    outColor = vec4(1.0, 0.0, 1.0, 1.0);
+            \\}
+        ;
+        break :program compile_shader_program(vert_shader_source, frag_shader_source);
+    };
 
     const circle_segment_count = 25;
-    const circles_count = 4;
+    const circle_radius = 0.02;
 
-    var circles_vertices_buf: [circles_count][circle_segment_count * 2]f32 = undefined;
+    var circles_vertices_buf: [COUNT_NESTS][circle_segment_count * 2]f32 = undefined;
 
-    _ = nests: {
+    const nests = nests: {
         var nests = std.MultiArrayList(Nest){};
         nests.resize(alloc, COUNT_NESTS) catch unreachable;
         generate_nests(rng, nests);
         break :nests nests;
     };
 
-    const circles_info: [circles_count]struct { x: f32, y: f32, r: f32 } = .{
-        .{ .x = 0.5, .y = 0.5, .r = 0.02 },
-        .{ .x = 0.5, .y = -0.5, .r = 0.02 },
-        .{ .x = -0.5, .y = 0.5, .r = 0.02 },
-        .{ .x = -0.5, .y = -0.5, .r = 0.02 },
-    };
+    var circles_ver_buf_gl_id: [COUNT_NESTS]c_uint = undefined;
+    var circles_pos_buf_gl_id: [COUNT_NESTS]c_uint = undefined;
 
-    var circles_ver_buf_gl_id: [circles_count]c_uint = undefined;
-    var circles_pos_buf_gl_id: [circles_count]c_uint = undefined;
+    const locations = nests.items(.location);
 
     // fill circle_vertices_buf
-    for (0..circles_count) |circle_index| {
-        const circle_info = circles_info[circle_index];
-
+    for (locations, 0..COUNT_NESTS) |location, circle_index| {
         for (0..circle_segment_count) |i| {
             const i_f32: f32 = @floatFromInt(i);
             const angle = i_f32 * std.math.tau / circle_segment_count;
-            circles_vertices_buf[circle_index][i * 2] = circle_info.x + std.math.cos(angle) * circle_info.r;
-            circles_vertices_buf[circle_index][i * 2 + 1] = circle_info.y + std.math.sin(angle) * circle_info.r;
+            circles_vertices_buf[circle_index][i * 2] = location[0] + std.math.cos(angle) * circle_radius;
+            circles_vertices_buf[circle_index][i * 2 + 1] = location[1] + std.math.sin(angle) * circle_radius;
         }
     }
-    gl.GenVertexArrays(circles_count, @ptrCast(&circles_ver_buf_gl_id[0]));
-    defer gl.DeleteVertexArrays(circles_count, @ptrCast(&circles_ver_buf_gl_id[0]));
+    gl.GenVertexArrays(COUNT_NESTS, @ptrCast(&circles_ver_buf_gl_id[0]));
+    defer gl.DeleteVertexArrays(COUNT_NESTS, @ptrCast(&circles_ver_buf_gl_id[0]));
 
-    gl.GenBuffers(circles_count, @ptrCast(&circles_pos_buf_gl_id[0]));
-    defer gl.DeleteBuffers(circles_count, @ptrCast(&circles_pos_buf_gl_id[0]));
+    gl.GenBuffers(COUNT_NESTS, @ptrCast(&circles_pos_buf_gl_id[0]));
+    defer gl.DeleteBuffers(COUNT_NESTS, @ptrCast(&circles_pos_buf_gl_id[0]));
 
     for (circles_ver_buf_gl_id, circles_pos_buf_gl_id, 0..) |circle_ver_buf_gl_id, circle_pos_buf_gl_id, circle_index| {
         gl.BindVertexArray(circle_ver_buf_gl_id);
@@ -162,7 +155,7 @@ pub fn main() !void {
             const attribute_name: *const [10:0]u8 = "a_position";
             const attribute_size: c_int = 2;
 
-            const location = gl.GetAttribLocation(program_basic, @ptrCast(attribute_name));
+            const location = gl.GetAttribLocation(nest_program, @ptrCast(attribute_name));
 
             if (location == -1) {
                 // TODO: figure out how to set text error and return error here.
@@ -174,16 +167,7 @@ pub fn main() !void {
         }
     }
 
-    var ant_texture_id: c_uint = undefined;
-    var ant_texture_program: c_uint = undefined;
-    var ant_texture_vao: c_uint = undefined;
-    var ant_texture_ebo: c_uint = undefined;
-    var ant_texture_instance_vbo: c_uint = undefined;
-    const ant_scale: f32 = 0.04; // This will scale the texture to half its size
-
-    const ants_count = 4;
-    var ant_instances: [ants_count * 3]f32 = undefined;
-    {
+    const ant_texture_program = program: {
         const ant_texture_vert_shader_source =
             \\#version 330 core
             \\
@@ -228,11 +212,21 @@ pub fn main() !void {
         ;
 
         // Compile and link shaders (omitted for brevity)
-        ant_texture_program = compile_shader_program(
+        break :program compile_shader_program(
             ant_texture_vert_shader_source,
             ant_texture_frag_shader_source,
         );
+    };
 
+    var ant_texture_id: c_uint = undefined;
+    var ant_texture_vao: c_uint = undefined;
+    var ant_texture_ebo: c_uint = undefined;
+    var ant_texture_instance_vbo: c_uint = undefined;
+    const ant_scale: f32 = 0.04; // This will scale the texture to half its size
+
+    const ants_count = 4;
+    var ant_instances: [ants_count * 3]f32 = undefined;
+    {
         const ant_texture_contents = bmp.read_ant_simple(alloc) catch |err| {
             std.debug.panic("Failed to read ant BMP: {any}", .{err});
         };
@@ -309,7 +303,7 @@ pub fn main() !void {
         gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        gl.UseProgram(program_basic);
+        gl.UseProgram(nest_program);
         // draw circles
         for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
             gl.BindVertexArray(circle_ver_buf_gl_id);
