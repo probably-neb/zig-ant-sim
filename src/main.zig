@@ -39,44 +39,6 @@ fn errorCallback(err: c_int, description: [*c]const u8) callconv(.C) void {
     std.log.err("GLFW Error: {s}", .{description});
 }
 
-var procs: gl.ProcTable = undefined;
-
-// Function that creates a window using GLFW.
-pub fn create_window(width: i32, height: i32) !*c.GLFWwindow {
-    var window: *c.GLFWwindow = undefined;
-
-    _ = c.glfwSetErrorCallback(errorCallback);
-
-    if (c.glfwInit() == gl.FALSE) {
-        std.debug.panic("Failed to initialize GLFW", .{});
-    }
-
-    c.glfwWindowHint(c.GLFW_OPENGL_PROFILE, c.GLFW_OPENGL_CORE_PROFILE);
-
-    // MSAA.
-    c.glfwWindowHint(c.GLFW_SAMPLES, 4);
-
-    // Needed on MacOS.
-    c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, gl.TRUE);
-
-    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 3);
-
-    window = c.glfwCreateWindow(width, height, "ant-sim", null, null) orelse {
-        std.log.err("Failed to create window", .{});
-        return error.FailedToCreateWindow;
-    };
-
-    c.glfwMakeContextCurrent(window);
-
-    if (!procs.init(c.glfwGetProcAddress)) {
-        return error.ProcTableInitFailed;
-    }
-    gl.makeProcTableCurrent(&procs);
-
-    return window;
-}
-
 pub fn main() !void {
     const setup_start = std.time.nanoTimestamp();
     const screen_w = 800;
@@ -86,7 +48,42 @@ pub fn main() !void {
     const rng = std.Random.init(&rng_inner, std.Random.DefaultPrng.fill);
     const alloc = std.heap.page_allocator;
 
-    const window_handler = try create_window(screen_w, screen_h);
+    var gl_proc_table: gl.ProcTable = undefined;
+
+    const window_handler = window: {
+        var window: *c.GLFWwindow = undefined;
+
+        _ = c.glfwSetErrorCallback(errorCallback);
+
+        if (c.glfwInit() == gl.FALSE) {
+            std.debug.panic("Failed to initialize GLFW", .{});
+        }
+
+        c.glfwWindowHint(c.GLFW_OPENGL_PROFILE, c.GLFW_OPENGL_CORE_PROFILE);
+
+        // MSAA.
+        c.glfwWindowHint(c.GLFW_SAMPLES, 4);
+
+        // Needed on MacOS.
+        c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, gl.TRUE);
+
+        c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 3);
+        c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 3);
+
+        window = c.glfwCreateWindow(screen_w, screen_h, "ant-sim", null, null) orelse {
+            std.log.err("Failed to create window", .{});
+            return error.FailedToCreateWindow;
+        };
+
+        c.glfwMakeContextCurrent(window);
+
+        if (!gl_proc_table.init(c.glfwGetProcAddress)) {
+            std.debug.panic("Failed to initialize OpenGL proc table", .{});
+        }
+        gl.makeProcTableCurrent(&gl_proc_table);
+
+        break :window window;
+    };
 
     var framebuffer_width: i32 = undefined;
     var framebuffer_height: i32 = undefined;
@@ -122,6 +119,7 @@ pub fn main() !void {
     const nests = nests: {
         var nests = std.MultiArrayList(Nest){};
         nests.resize(alloc, COUNT_NESTS) catch unreachable;
+
         // generate nests
         {
             const locations = nests.items(.location);
@@ -142,6 +140,7 @@ pub fn main() !void {
                 color.* = .{ r, g, b };
             }
         }
+
         break :nests nests;
     };
 
