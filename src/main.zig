@@ -6,7 +6,8 @@ const bmp = @import("bmp.zig");
 
 const COUNT_NESTS: u32 = 4;
 const COUNT_RESOURCES: @TypeOf(COUNT_NESTS) = COUNT_NESTS;
-const COUNT_ANTS: u64 = 1022;
+const ANT_NEST_RATIO = 4;
+const COUNT_ANTS: u64 = COUNT_NESTS * ANT_NEST_RATIO;
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
 
@@ -15,6 +16,7 @@ const NEST_MAX_ANTS = 1;
 const Nest = struct {
     location: [2]f32, // [x, y]
     color: [3]u8, // [r, g, b]
+    ant_count: u8 = 0,
 
     const ID = @TypeOf(COUNT_NESTS);
 };
@@ -126,6 +128,9 @@ pub fn main() !void {
 
         // generate nests
         {
+            const ant_counts = nests.items(.ant_count);
+            @memset(ant_counts, 0);
+
             const locations = nests.items(.location);
             for (locations) |*location| {
                 const x = rng.float(f32) - 0.5;
@@ -320,37 +325,49 @@ pub fn main() !void {
 
     var ant_id_next: Ant.ID = 0;
 
+    const nest_ant_counts = nests.items(.ant_count);
+    std.debug.print("nest_ant_counts: {any}\n", .{nest_ant_counts});
+
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
         const start = std.time.nanoTimestamp();
         defer {
-            std.debug.print("frame time: {}ms\r", .{@as(f64, @floatFromInt(std.time.nanoTimestamp() - start)) / std.time.ns_per_ms});
+            const frame_time_ns: f64 = @floatFromInt(std.time.nanoTimestamp() - start);
+            const frame_time = frame_time_ns / std.time.ns_per_ms;
+            std.debug.print("frame time: {}ms\r", .{frame_time});
         }
         gl.Viewport(0, 0, framebuffer_width, framebuffer_height);
         gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+        const count_ants_cur = ants.len;
 
-        if (ants.len < COUNT_ANTS and rng.boolean()) {
-            ants.appendAssumeCapacity(.{
-                .id = ant_id_next,
-                .steps = undefined,
-                .cur_step = 0,
-                .orig = 0,
-                .dest = 1,
-                .cur_dest = 1,
-            });
-            ant_id_next += 1;
+        if (count_ants_cur < COUNT_ANTS and rng.boolean()) {
+            // PERF: if count_ants_cur close to COUNT_ANTS then just do linear search for nest
+            // with less than NEST_MAX_ANTS ants
+            ant_gen: for (0..COUNT_NESTS) |_| {
+                const nest_id = rng.uintLessThan(u32, COUNT_NESTS);
+                if (nest_ant_counts[nest_id] < NEST_MAX_ANTS) {
+                    ants.appendAssumeCapacity(.{
+                        .id = ant_id_next,
+                        .steps = undefined,
+                        .cur_step = 0,
+                        .orig = nest_id,
+                        .dest = 1,
+                        .cur_dest = 1,
+                    });
+                    nest_ant_counts[nest_id] += 1;
+                    ant_id_next += 1;
+                    break :ant_gen;
+                }
+            }
         }
 
-        const count_ants_cur = ants.len;
 
         for (0..count_ants_cur) |i| {
             ant_instances[i * 3 + 0] = @floatCast(std.math.sin(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // x
             ant_instances[i * 3 + 1] = @floatCast(std.math.cos(@as(f32, @floatFromInt(i)) * 0.1 + c.glfwGetTime()) * 0.5); // y
             ant_instances[i * 3 + 2] = @floatCast(c.glfwGetTime() + @as(f32, @floatFromInt(i)) * 0.5); // rotation
         }
-
-
 
         gl.UseProgram(ant_texture_program);
         {
