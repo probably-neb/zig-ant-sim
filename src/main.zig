@@ -362,6 +362,24 @@ pub fn main() !void {
         break :nest_angles nest_angles;
     };
 
+    const nest_distances = nest_distances: {
+        var nest_distances: [COUNT_NESTS][COUNT_NESTS]f32 = undefined;
+        const locations = nests.items(.location);
+
+        for (0..COUNT_NESTS) |nest_index| {
+            for (0..COUNT_NESTS) |other_nest_index| {
+                const nest_loc = locations[nest_index];
+                const other_nest_loc = locations[other_nest_index];
+
+                const dx = other_nest_loc[0] - nest_loc[0];
+                const dy = other_nest_loc[1] - nest_loc[1];
+                nest_distances[nest_index][other_nest_index] = std.math.sqrt(std.math.pow(f32, dy, 2) + std.math.pow(f32, dx, 2));
+            }
+        }
+
+        break :nest_distances nest_distances;
+    };
+
 
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
@@ -425,16 +443,18 @@ pub fn main() !void {
             const ant_traveled = ants.items(.traveled);
             const ant_angles = ants.items(.angle);
             const ant_cur_origs = ants.items(.orig);
+            const ant_cur_dests = ants.items(.dest);
             const nest_locations = nests.items(.location);
 
             for (0..count_ants_cur) |i| {
-                ant_traveled[i] += 0.001;
-            }
-            for (0..count_ants_cur) |i| {
+                const dist = nest_distances[ant_cur_origs[i]][ant_cur_dests[i]];
+                if (ant_traveled[i] < 1.0) {
+                    ant_traveled[i] += 0.001 / dist;
+                }
                 ant_instances[i * ANT_IATTRS_COUNT + 0] = nest_locations[ant_cur_origs[i]][0];
                 ant_instances[i * ANT_IATTRS_COUNT + 1] = nest_locations[ant_cur_origs[i]][1];
                 ant_instances[i * ANT_IATTRS_COUNT + 2] = ant_angles[i]; // rotation
-                ant_instances[i * ANT_IATTRS_COUNT + 3] = ant_traveled[i];
+                ant_instances[i * ANT_IATTRS_COUNT + 3] = dist * ant_traveled[i]; // magnitude
             }
         }
 
