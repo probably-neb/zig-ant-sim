@@ -11,6 +11,12 @@ const COUNT_ANTS: u64 = COUNT_NESTS * ANT_NEST_RATIO;
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
 
+// how much pheromones are increased when going from one nest to another on the path to another nest
+const ANT_PHEROMONE_TRAVEL_INC = 0.01;
+// how much pheromones are increased when returning along the path that lead to desired nest
+const ANT_PHEROMONE_RETURN_INC = 0.04;
+const ANT_PHEROMONE_DECAY = 0.005;
+
 const NEST_MAX_ANTS = 1;
 
 const Nest = struct {
@@ -32,6 +38,7 @@ const Ant = struct {
     cur_dest: Nest.ID,
     angle: f32,
     traveled: f32,
+    reached: bool = false,
 
     const ID = u64;
 };
@@ -406,6 +413,7 @@ pub fn main() !void {
         const ant_cur_steps = ants.items(.cur_step);
         const nest_pheromones = nests.items(.pheromones);
         const ant_dests = ants.items(.dest);
+        const ant_reached = ants.items(.reached);
 
         const count_ants_cur = ants.len;
 
@@ -447,6 +455,7 @@ pub fn main() !void {
                         .cur_dest = next_dest,
                         .angle = angle,
                         .traveled = 0,
+                        .reached = false,
                     };
                     ant.steps[0] = orig_id;
 
@@ -469,10 +478,22 @@ pub fn main() !void {
                     ant_traveled[i] += 0.01 / dist;
                 } else if (ant_cur_dests[i] == ant_dests[i]) {
                     // std.debug.print("[{}] ARRIVED AT {}\n", .{i, ant_dests[i]});
-                } else {
+                    ant_reached[i] = true;
+                    ant_traveled[i] = 0.0;
+                    ant_cur_origs[i] = ant_dests[i];
+                    const next_dest = ant_steps[i][ant_cur_steps[i]];
+                    ant_cur_dests[i] = next_dest;
+                    ant_angles[i] = nest_angles[ant_cur_origs[i]][ant_cur_dests[i]];
+                    // TODO: update pheromones on way back more
+                } else if (ant_reached[i]) {
 
-                    const next_dest = next_ant_exploring_dest(&rng, &nest_pheromones[ant_cur_dests[i]], ant_steps[i][0..ant_cur_steps[i] + 1]);
-                    ant_cur_origs[i] = ant_cur_dests[i];
+                } else {
+                    const arrived_at = ant_cur_dests[i];
+                    const next_dest = next_ant_exploring_dest(&rng, &nest_pheromones[arrived_at], ant_steps[i][0..ant_cur_steps[i] + 1]);
+                    // increase pheromones along this path
+                    nest_pheromones[arrived_at][next_dest] += ANT_PHEROMONE_TRAVEL_INC;
+
+                    ant_cur_origs[i] = arrived_at;
                     ant_cur_dests[i] = next_dest;
                     // std.debug.print("sending ant from {} to {} on way to {}", .{
                     //     ant_cur_origs[i],
@@ -494,15 +515,6 @@ pub fn main() !void {
         }
 
 
-        gl.UseProgram(nest_program);
-        // draw circles
-        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
-            gl.BindVertexArray(circle_ver_buf_gl_id);
-            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
-
-            gl.BindVertexArray(0);
-            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
-        }
 
         gl.UseProgram(ant_texture_program);
         {
@@ -517,6 +529,17 @@ pub fn main() !void {
             gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
             gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, null, @intCast(count_ants_cur));
         }
+
+        gl.UseProgram(nest_program);
+        // draw circles
+        for (circles_ver_buf_gl_id) |circle_ver_buf_gl_id| {
+            gl.BindVertexArray(circle_ver_buf_gl_id);
+            gl.DrawArrays(gl.TRIANGLE_FAN, 0, @intCast(circle_segment_count));
+
+            gl.BindVertexArray(0);
+            gl.BindBuffer(gl.ARRAY_BUFFER, 0);
+        }
+
         c.glfwSwapBuffers(window_handler);
         c.glfwPollEvents();
     }
