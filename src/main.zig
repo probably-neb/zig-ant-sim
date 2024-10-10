@@ -4,7 +4,7 @@ const gl = @import("gl");
 const c = @import("c.zig");
 const bmp = @import("bmp.zig");
 
-const COUNT_NESTS: u32 = 4;
+const COUNT_NESTS: u32 = 12;
 const COUNT_RESOURCES: @TypeOf(COUNT_NESTS) = COUNT_NESTS;
 const ANT_NEST_RATIO = 4;
 const COUNT_ANTS: u64 = COUNT_NESTS * ANT_NEST_RATIO;
@@ -17,6 +17,7 @@ const Nest = struct {
     location: [2]f32, // [x, y]
     color: [3]u8, // [r, g, b]
     ant_count: u8 = 0,
+    pheromones: [COUNT_NESTS]f32,
 
     const ID = @TypeOf(COUNT_NESTS);
 };
@@ -28,7 +29,7 @@ const Ant = struct {
     steps: [COUNT_NESTS]Nest.ID,
     cur_step: @TypeOf(COUNT_NESTS),
     cur_orig: Nest.ID,
-    cur_dest: ?Nest.ID,
+    cur_dest: Nest.ID,
     angle: f32,
     traveled: f32,
 
@@ -54,7 +55,7 @@ pub fn main() !void {
     const screen_h = 600;
 
     var rng_inner = std.Random.DefaultPrng.init(@intCast(std.time.milliTimestamp()));
-    const rng = std.Random.init(&rng_inner, std.Random.DefaultPrng.fill);
+    var rng = std.Random.init(&rng_inner, std.Random.DefaultPrng.fill);
     const alloc = std.heap.page_allocator;
 
     var gl_proc_table: gl.ProcTable = undefined;
@@ -131,6 +132,9 @@ pub fn main() !void {
         {
             const ant_counts = nests.items(.ant_count);
             @memset(ant_counts, 0);
+
+            const pheromones = nests.items(.pheromones);
+            @memset(pheromones, .{0.0} ** COUNT_NESTS);
 
             const locations = nests.items(.location);
             for (locations) |*location| {
@@ -393,6 +397,16 @@ pub fn main() !void {
         gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+        const ant_traveled = ants.items(.traveled);
+        const ant_angles = ants.items(.angle);
+        const ant_cur_origs = ants.items(.cur_orig);
+        const ant_cur_dests = ants.items(.cur_dest);
+        const nest_locations = nests.items(.location);
+        const ant_steps = ants.items(.steps);
+        const ant_cur_steps = ants.items(.cur_step);
+        const nest_pheromones = nests.items(.pheromones);
+        const ant_dests = ants.items(.dest);
+
         const count_ants_cur = ants.len;
 
         if (count_ants_cur < COUNT_ANTS and rng.boolean()) {
@@ -416,20 +430,27 @@ pub fn main() !void {
                         }
                     };
 
-                    // + pi/2 to adjust for rotation of ant texture
-                    const angle = nest_angles[orig_id][dest_id];
+                    const next_dest = next_ant_exploring_dest(&rng, &nest_pheromones[orig_id], &.{orig_id});
+                    std.debug.print("ant orig {d} dest {d} next {d}\n", .{ orig_id, dest_id, next_dest });
 
-                    ants.appendAssumeCapacity(.{
+                    // + pi/2 to adjust for rotation of ant texture
+                    const angle = nest_angles[orig_id][next_dest];
+
+
+                    var ant: Ant = .{
                         .id = ant_id_next,
                         .steps = undefined,
                         .orig = orig_id,
                         .dest = dest_id,
                         .cur_step = 0,
                         .cur_orig = orig_id,
-                        .cur_dest = null,
+                        .cur_dest = next_dest,
                         .angle = angle,
                         .traveled = 0,
-                    });
+                    };
+                    ant.steps[0] = orig_id;
+
+                    ants.appendAssumeCapacity(ant);
                     nest_ant_counts[orig_id] += 1;
                     ant_id_next += 1;
                     break :ant_gen;
@@ -440,16 +461,30 @@ pub fn main() !void {
         // ant updates
 
         {
-            const ant_traveled = ants.items(.traveled);
-            const ant_angles = ants.items(.angle);
-            const ant_cur_origs = ants.items(.orig);
-            const ant_cur_dests = ants.items(.dest);
-            const nest_locations = nests.items(.location);
 
             for (0..count_ants_cur) |i| {
                 const dist = nest_distances[ant_cur_origs[i]][ant_cur_dests[i]];
                 if (ant_traveled[i] < 1.0) {
-                    ant_traveled[i] += 0.001 / dist;
+                    // std.debug.print("[{}] TRAVELED {}\n", .{i, ant_traveled[i]});
+                    ant_traveled[i] += 0.01 / dist;
+                } else if (ant_cur_dests[i] == ant_dests[i]) {
+                    // std.debug.print("[{}] ARRIVED AT {}\n", .{i, ant_dests[i]});
+                } else {
+
+                    const next_dest = next_ant_exploring_dest(&rng, &nest_pheromones[ant_cur_dests[i]], ant_steps[i][0..ant_cur_steps[i] + 1]);
+                    ant_cur_origs[i] = ant_cur_dests[i];
+                    ant_cur_dests[i] = next_dest;
+                    // std.debug.print("sending ant from {} to {} on way to {}", .{
+                    //     ant_cur_origs[i],
+                    //     ant_cur_dests[i],
+                    //     ant_dests[i],
+                    // });
+                    const next_step_index = ant_cur_steps[i] + 1;
+                    std.debug.assert(next_step_index < COUNT_NESTS);
+                    ant_steps[i][next_step_index] = next_dest;
+                    ant_cur_steps[i] = next_step_index;
+                    ant_traveled[i] = 0.0;
+                    ant_angles[i] = nest_angles[ant_cur_origs[i]][ant_cur_dests[i]];
                 }
                 ant_instances[i * ANT_IATTRS_COUNT + 0] = nest_locations[ant_cur_origs[i]][0];
                 ant_instances[i * ANT_IATTRS_COUNT + 1] = nest_locations[ant_cur_origs[i]][1];
@@ -485,6 +520,23 @@ pub fn main() !void {
         c.glfwSwapBuffers(window_handler);
         c.glfwPollEvents();
     }
+}
+
+fn next_ant_exploring_dest(rng: *std.Random, pheromones: *const [COUNT_NESTS]f32, steps: []const Nest.ID) Nest.ID {
+    var pheromone_copy: [COUNT_NESTS]f32 = .{0} ** COUNT_NESTS;
+    @memcpy(pheromone_copy[0..], pheromones[0..]);
+
+    for (&pheromone_copy) |*pheromone| {
+        // assert greater than zero because we will use -1.0 to eliminate visited
+        std.debug.assert(pheromone.* >= 0.0);
+        // introduce some random noise in the decision
+        pheromone.* += std.math.clamp(rng.floatNorm(f32) * 0.5, -0.05, 0.05);
+    }
+    for (steps) |visited_id| {
+        // PERF: skip rng above for visited. probably by setting and checking if it is -1.0 before applying noise
+        pheromone_copy[visited_id] = -1.0;
+    }
+    return @intCast(std.mem.indexOfMax(f32, &pheromone_copy));
 }
 
 /// Compile shader from string.
