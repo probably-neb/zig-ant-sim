@@ -29,7 +29,8 @@ const Ant = struct {
     cur_step: @TypeOf(COUNT_NESTS),
     cur_orig: Nest.ID,
     cur_dest: ?Nest.ID,
-    angle: f32 = 0,
+    angle: f32,
+    traveled: f32,
 
     const ID = u64;
 };
@@ -133,6 +134,7 @@ pub fn main() !void {
 
             const locations = nests.items(.location);
             for (locations) |*location| {
+                // TODO: even distribution of generated locations
                 const x = rng.float(f32) - 0.5;
                 const y = rng.float(f32) - 0.5;
                 location.* = .{
@@ -205,7 +207,7 @@ pub fn main() !void {
             \\
             \\layout (location = 0) in vec2 aPos;
             \\layout (location = 1) in vec2 aTexCoord;
-            \\layout (location = 2) in vec3 aInstance; // x, y, rotation
+            \\layout (location = 2) in vec4 aInstance; // x, y, rotation, magnitude
             \\
             \\out vec2 TexCoord;
             \\
@@ -259,7 +261,8 @@ pub fn main() !void {
     var ants = std.MultiArrayList(Ant){};
     ants.ensureTotalCapacity(alloc, COUNT_ANTS) catch unreachable;
 
-    var ant_instances: [COUNT_ANTS * 3]f32 = undefined;
+    const ANT_IATTRS_COUNT = 4;
+    var ant_instances: [COUNT_ANTS * ANT_IATTRS_COUNT]f32 = undefined;
     {
         const ant_texture_contents = bmp.read_ant_simple(alloc) catch |err| {
             std.debug.panic("Failed to read ant BMP: {any}", .{err});
@@ -317,7 +320,7 @@ pub fn main() !void {
 
             // Set up the instance attribute
             gl.EnableVertexAttribArray(2);
-            gl.VertexAttribPointer(2, 3, gl.FLOAT, gl.FALSE, 3 * @sizeOf(f32), 0);
+            gl.VertexAttribPointer(2, ANT_IATTRS_COUNT, gl.FLOAT, gl.FALSE, ANT_IATTRS_COUNT * @sizeOf(f32), 0);
             gl.VertexAttribDivisor(2, 1); // This makes it an instanced attribute
         }
 
@@ -398,6 +401,7 @@ pub fn main() !void {
                         .cur_orig = orig_id,
                         .cur_dest = null,
                         .angle = angle,
+                        .traveled = 0,
                     });
                     nest_ant_counts[orig_id] += 1;
                     ant_id_next += 1;
@@ -406,15 +410,22 @@ pub fn main() !void {
             }
         }
 
+        // ant updates
+
         {
+            const ant_traveled = ants.items(.traveled);
             const ant_angles = ants.items(.angle);
             const ant_cur_origs = ants.items(.orig);
             const nest_locations = nests.items(.location);
 
             for (0..count_ants_cur) |i| {
-                ant_instances[i * 3 + 0] = nest_locations[ant_cur_origs[i]][0];
-                ant_instances[i * 3 + 1] = nest_locations[ant_cur_origs[i]][1];
-                ant_instances[i * 3 + 2] = ant_angles[i]; // rotation
+                ant_traveled[i] += 0.1;
+            }
+            for (0..count_ants_cur) |i| {
+                ant_instances[i * ANT_IATTRS_COUNT + 0] = nest_locations[ant_cur_origs[i]][0];
+                ant_instances[i * ANT_IATTRS_COUNT + 1] = nest_locations[ant_cur_origs[i]][1];
+                ant_instances[i * ANT_IATTRS_COUNT + 2] = ant_angles[i]; // rotation
+                ant_instances[i * ANT_IATTRS_COUNT + 3] = ant_traveled[i];
             }
         }
 
@@ -432,7 +443,7 @@ pub fn main() !void {
         gl.UseProgram(ant_texture_program);
         {
             gl.BindBuffer(gl.ARRAY_BUFFER, ant_texture_instance_vbo);
-            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(count_ants_cur * 3 * @sizeOf(f32)), &ant_instances);
+            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(count_ants_cur * ANT_IATTRS_COUNT * @sizeOf(f32)), &ant_instances);
             gl.BindBuffer(gl.ARRAY_BUFFER, 0);
 
             gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
