@@ -212,20 +212,29 @@ pub fn main() !void {
             \\out vec2 TexCoord;
             \\
             \\uniform float uScale;
+            \\#define pi 3.14159265359
             \\
             \\void main()
             \\{
-            \\    // Apply rotation
-            \\    float cosR = cos(aInstance.z);
-            \\    float sinR = sin(aInstance.z);
+            \\    // Extract vector components from aInstance
+            \\    vec2 vectorStart = aInstance.xy;
+            \\    float vectorLength = aInstance.w;
+            \\    float vectorAngle = aInstance.z;
+            \\
+            \\    // Calculate vector end point (tip)
+            \\    vec2 vectorEnd = vectorStart + vec2(cos(vectorAngle), sin(vectorAngle)) * vectorLength;
+            \\
+            \\    // Apply rotation to the quad
+            \\    float cosR = cos(vectorAngle + pi / 2.0);
+            \\    float sinR = sin(vectorAngle + pi / 2.0);
             \\    vec2 rotatedPos = vec2(
             \\        aPos.x * cosR - aPos.y * sinR,
             \\        aPos.x * sinR + aPos.y * cosR
             \\    );
             \\    
-            \\    // Apply scaling
+            \\    // Apply scaling and position the quad at the vector tip
             \\    vec2 scaledPos = rotatedPos * uScale;
-            \\    vec2 finalPos = scaledPos + aInstance.xy;
+            \\    vec2 finalPos = scaledPos + vectorEnd;
             \\    
             \\    gl_Position = vec4(finalPos, 0.0, 1.0);
             \\    TexCoord = aTexCoord;
@@ -294,7 +303,7 @@ pub fn main() !void {
 
         gl.GenBuffers(1, @ptrCast(&ant_texture_ebo));
         gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ant_texture_ebo);
-        gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, ant_texture_indices.len * @sizeOf(u32), @ptrCast(&ant_texture_indices[0]), gl.STATIC_DRAW);
+        gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, ant_texture_indices.len * @sizeOf(u32), @ptrCast(&ant_texture_indices[0]), gl.STATIC_DRAW,);
 
         var ant_texture_vbo: c_uint = undefined;
 
@@ -390,7 +399,7 @@ pub fn main() !void {
                     };
 
                     // + pi/2 to adjust for rotation of ant texture
-                    const angle = nest_angles[orig_id][dest_id] + (std.math.pi / 2.0);
+                    const angle = nest_angles[orig_id][dest_id];
 
                     ants.appendAssumeCapacity(.{
                         .id = ant_id_next,
@@ -419,7 +428,7 @@ pub fn main() !void {
             const nest_locations = nests.items(.location);
 
             for (0..count_ants_cur) |i| {
-                ant_traveled[i] += 0.1;
+                ant_traveled[i] += 0.001;
             }
             for (0..count_ants_cur) |i| {
                 ant_instances[i * ANT_IATTRS_COUNT + 0] = nest_locations[ant_cur_origs[i]][0];
