@@ -4,9 +4,9 @@ const gl = @import("gl");
 const c = @import("c.zig");
 const bmp = @import("bmp.zig");
 
-const COUNT_NESTS: u32 = 8;
+const COUNT_NESTS: u32 = 12;
 const COUNT_RESOURCES: @TypeOf(COUNT_NESTS) = COUNT_NESTS;
-const ANT_NEST_RATIO = 0.25;
+const ANT_NEST_RATIO = 0.5;
 const COUNT_ANTS: u64 = @intFromFloat(@as(f32, @floatFromInt(COUNT_NESTS)) * ANT_NEST_RATIO);
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
@@ -474,7 +474,8 @@ pub fn main() !void {
 
         {
 
-            for (0..count_ants_cur) |i| {
+            var i: usize = 0;
+            for (0..count_ants_cur) |_| {
                 const dist = nest_distances[ant_cur_origs[i]][ant_cur_dests[i]];
                 if (ant_traveled[i] < 1.0) {
                     // std.debug.print("[{}] TRAVELED {}\n", .{i, ant_traveled[i]});
@@ -505,9 +506,11 @@ pub fn main() !void {
                         ant_traveled[i] = 0.0;
                     } else {
                         std.debug.assert(ant_cur_dests[i] == ant_origs[i]);
-                        // FIXME: remove ant
+                        nest_ant_counts[ant_origs[i]] -= 1;
+                        ants.swapRemove(i);
+                        // avoid hitting i+=1 below so that we don't draw this ant
+                        continue;
                     }
-
                 } else {
                     const arrived_at = ant_cur_dests[i];
                     const cur_step = ant_cur_steps[i];
@@ -532,6 +535,9 @@ pub fn main() !void {
                     ant_traveled[i] = 0.0;
                     ant_angles[i] = nest_angles[ant_cur_origs[i]][ant_cur_dests[i]];
                 }
+
+                defer i += 1;
+
                 ant_instances[i * ANT_IATTRS_COUNT + 0] = nest_locations[ant_cur_origs[i]][0];
                 ant_instances[i * ANT_IATTRS_COUNT + 1] = nest_locations[ant_cur_origs[i]][1];
                 ant_instances[i * ANT_IATTRS_COUNT + 2] = ant_angles[i]; // rotation
@@ -544,7 +550,7 @@ pub fn main() !void {
         gl.UseProgram(ant_texture_program);
         {
             gl.BindBuffer(gl.ARRAY_BUFFER, ant_texture_instance_vbo);
-            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(count_ants_cur * ANT_IATTRS_COUNT * @sizeOf(f32)), &ant_instances);
+            gl.BufferSubData(gl.ARRAY_BUFFER, 0, @intCast(ants.len * ANT_IATTRS_COUNT * @sizeOf(f32)), &ant_instances);
             gl.BindBuffer(gl.ARRAY_BUFFER, 0);
 
             gl.BindTexture(gl.TEXTURE_2D, ant_texture_id);
