@@ -4,10 +4,10 @@ const gl = @import("gl");
 const c = @import("c.zig");
 const bmp = @import("bmp.zig");
 
-const COUNT_NESTS: u32 = 12;
+const COUNT_NESTS: u32 = 8;
 const COUNT_RESOURCES: @TypeOf(COUNT_NESTS) = COUNT_NESTS;
-const ANT_NEST_RATIO = 4;
-const COUNT_ANTS: u64 = COUNT_NESTS * ANT_NEST_RATIO;
+const ANT_NEST_RATIO = 0.25;
+const COUNT_ANTS: u64 = @intFromFloat(@as(f32, @floatFromInt(COUNT_NESTS)) * ANT_NEST_RATIO);
 const COUNT_CURRENT_PATHS: @TypeOf(COUNT_ANTS) = COUNT_ANTS;
 const COUNT_PATHS: u64 = COUNT_NESTS * (COUNT_NESTS - 1) / 2;
 
@@ -394,12 +394,12 @@ pub fn main() !void {
 
 
     while (c.glfwWindowShouldClose(window_handler) == gl.FALSE) {
-        const start = std.time.nanoTimestamp();
-        defer {
-            const frame_time_ns: f64 = @floatFromInt(std.time.nanoTimestamp() - start);
-            const frame_time = frame_time_ns / std.time.ns_per_ms;
-            std.debug.print("frame time: {}ms\r", .{frame_time});
-        }
+        // const start = std.time.nanoTimestamp();
+        // defer {
+        //     const frame_time_ns: f64 = @floatFromInt(std.time.nanoTimestamp() - start);
+        //     const frame_time = frame_time_ns / std.time.ns_per_ms;
+        //     std.debug.print("frame time: {}ms\r", .{frame_time});
+        // }
         gl.Viewport(0, 0, framebuffer_width, framebuffer_height);
         gl.ClearColor(1, 1, 1, 1);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -413,7 +413,9 @@ pub fn main() !void {
         const ant_cur_steps = ants.items(.cur_step);
         const nest_pheromones = nests.items(.pheromones);
         const ant_dests = ants.items(.dest);
+        const ant_origs = ants.items(.orig);
         const ant_reached = ants.items(.reached);
+        const ant_ids = ants.items(.id);
 
         const count_ants_cur = ants.len;
 
@@ -439,7 +441,7 @@ pub fn main() !void {
                     };
 
                     const next_dest = next_ant_exploring_dest(&rng, &nest_pheromones[orig_id], &.{orig_id});
-                    std.debug.print("ant orig {d} dest {d} next {d}\n", .{ orig_id, dest_id, next_dest });
+                    std.debug.print("[{}] START from {d} dest {d} next {d}\n", .{ant_id_next, orig_id, dest_id, next_dest });
 
                     // + pi/2 to adjust for rotation of ant texture
                     const angle = nest_angles[orig_id][next_dest];
@@ -450,7 +452,7 @@ pub fn main() !void {
                         .steps = undefined,
                         .orig = orig_id,
                         .dest = dest_id,
-                        .cur_step = 0,
+                        .cur_step = 1,
                         .cur_orig = orig_id,
                         .cur_dest = next_dest,
                         .angle = angle,
@@ -458,6 +460,7 @@ pub fn main() !void {
                         .reached = false,
                     };
                     ant.steps[0] = orig_id;
+                    ant.steps[1] = next_dest;
 
                     ants.appendAssumeCapacity(ant);
                     nest_ant_counts[orig_id] += 1;
@@ -477,33 +480,55 @@ pub fn main() !void {
                     // std.debug.print("[{}] TRAVELED {}\n", .{i, ant_traveled[i]});
                     ant_traveled[i] += 0.01 / dist;
                 } else if (ant_cur_dests[i] == ant_dests[i]) {
-                    // std.debug.print("[{}] ARRIVED AT {}\n", .{i, ant_dests[i]});
+                    std.debug.print("[{}] ARRIVED AT FINAL {}\n", .{ant_ids[i], ant_dests[i]});
                     ant_reached[i] = true;
                     ant_traveled[i] = 0.0;
+                    const cur_step = ant_cur_steps[i];
+                    const next_step = cur_step - 1;
+                    const next_dest = ant_steps[i][next_step];
                     ant_cur_origs[i] = ant_dests[i];
-                    const next_dest = ant_steps[i][ant_cur_steps[i]];
+                    ant_cur_steps[i] = next_step;
                     ant_cur_dests[i] = next_dest;
                     ant_angles[i] = nest_angles[ant_cur_origs[i]][ant_cur_dests[i]];
-                    // TODO: update pheromones on way back more
-                } else if (ant_reached[i]) {
+                }  else if (ant_reached[i]) {
+                    const at = ant_cur_dests[i];
+                    const prev = ant_cur_origs[i];
+                    nest_pheromones[at][prev] += ANT_PHEROMONE_RETURN_INC;
+                    const step_index = ant_cur_steps[i];
+                    if (step_index > 0) {
+                        const next_dest = ant_steps[i][step_index - 1];
+                        ant_cur_origs[i] = ant_cur_dests[i];
+                        ant_cur_dests[i] = next_dest;
+                        ant_cur_steps[i] = step_index - 1;
+                        ant_angles[i] = nest_angles[ant_cur_origs[i]][ant_cur_dests[i]];
+                        std.debug.print("[{}] RETURN from {} to {} given steps {any}\n", .{ ant_ids[i], ant_cur_origs[i], ant_cur_dests[i], ant_steps[i][0..step_index + 1]});
+                        ant_traveled[i] = 0.0;
+                    } else {
+                        std.debug.assert(ant_cur_dests[i] == ant_origs[i]);
+                        // FIXME: remove ant
+                    }
 
                 } else {
                     const arrived_at = ant_cur_dests[i];
+                    const cur_step = ant_cur_steps[i];
+                    const next_step_index = cur_step + 1;
+                    std.debug.assert(next_step_index < COUNT_NESTS);
+                    std.debug.print("[{}] ARRIVED AT {} (step {})\n", .{ant_ids[i], arrived_at, ant_cur_steps[i]});
                     const next_dest = next_ant_exploring_dest(&rng, &nest_pheromones[arrived_at], ant_steps[i][0..ant_cur_steps[i] + 1]);
+
+                    ant_steps[i][next_step_index] = next_dest;
+                    ant_cur_steps[i] = next_step_index;
+
                     // increase pheromones along this path
                     nest_pheromones[arrived_at][next_dest] += ANT_PHEROMONE_TRAVEL_INC;
 
                     ant_cur_origs[i] = arrived_at;
                     ant_cur_dests[i] = next_dest;
-                    // std.debug.print("sending ant from {} to {} on way to {}", .{
-                    //     ant_cur_origs[i],
-                    //     ant_cur_dests[i],
-                    //     ant_dests[i],
-                    // });
-                    const next_step_index = ant_cur_steps[i] + 1;
-                    std.debug.assert(next_step_index < COUNT_NESTS);
-                    ant_steps[i][next_step_index] = next_dest;
-                    ant_cur_steps[i] = next_step_index;
+                    std.debug.print("sending ant from {} to {} on way to {}\n", .{
+                        ant_cur_origs[i],
+                        ant_cur_dests[i],
+                        ant_dests[i],
+                    });
                     ant_traveled[i] = 0.0;
                     ant_angles[i] = nest_angles[ant_cur_origs[i]][ant_cur_dests[i]];
                 }
@@ -554,12 +579,15 @@ fn next_ant_exploring_dest(rng: *std.Random, pheromones: *const [COUNT_NESTS]f32
         std.debug.assert(pheromone.* >= 0.0);
         // introduce some random noise in the decision
         pheromone.* += std.math.clamp(rng.floatNorm(f32) * 0.5, -0.05, 0.05);
+        pheromone.* = @max(0.0, pheromone.*);
     }
     for (steps) |visited_id| {
         // PERF: skip rng above for visited. probably by setting and checking if it is -1.0 before applying noise
         pheromone_copy[visited_id] = -1.0;
     }
-    return @intCast(std.mem.indexOfMax(f32, &pheromone_copy));
+    const next: Nest.ID = @intCast(std.mem.indexOfMax(f32, &pheromone_copy));
+    std.debug.print("chose nest {} from {any} given steps {any}\n", .{next, pheromone_copy, steps});
+    return next;
 }
 
 /// Compile shader from string.
